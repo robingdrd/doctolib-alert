@@ -1,0 +1,26 @@
+name: Doctolib Alert - Maba DIARRA
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+jobs:
+  check-availability:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Verifier les creneaux Doctolib
+        env:
+          EMAIL_DESTINATAIRE: ${{ secrets.EMAIL_DESTINATAIRE }}
+          EMAIL_EXPEDITEUR:   ${{ secrets.EMAIL_EXPEDITEUR }}
+          EMAIL_MOT_DE_PASSE: ${{ secrets.EMAIL_MOT_DE_PASSE }}
+        run: python doctolib_alert.py
