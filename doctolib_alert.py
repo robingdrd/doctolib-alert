@@ -16,6 +16,9 @@ EMAIL_DESTINATAIRE = os.environ.get("EMAIL_DESTINATAIRE", "")
 EMAIL_EXPEDITEUR   = os.environ.get("EMAIL_EXPEDITEUR", "")
 EMAIL_MOT_DE_PASSE = os.environ.get("EMAIL_MOT_DE_PASSE", "")
 
+# MISE A JOUR: passer a False apres le test
+MODE_TEST = True
+
 def get_availabilities():
     today = date.today().isoformat()
     url = (
@@ -53,21 +56,31 @@ def get_all_creneaux(data):
             creneaux.append(slot)
     return creneaux
 
-def envoyer_email(creneaux):
-    liste = "\n".join(["- " + c for c in creneaux[:15]])
+def envoyer_email(creneaux, test=False):
     url_rdv = "https://www.doctolib.fr/psychotherapeute/paris/maba-diarra"
+    if test:
+        sujet = "[TEST] Alerte Doctolib - verification email"
+        texte = "Ceci est un email de test.\nLa surveillance Doctolib fonctionne correctement.\n\nQuand un vrai creneau sera disponible, tu recevras un email similaire avec les horaires.\n\nReserver : " + url_rdv
+    else:
+        liste = "\n".join(["- " + c for c in creneaux[:15]])
+        sujet = "Creneau Doctolib disponible - Maba DIARRA"
+        texte = "Creneaux disponibles :\n\n" + liste + "\n\nReserver : " + url_rdv
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = "Creneau Doctolib disponible - Maba DIARRA"
+    msg["Subject"] = sujet
     msg["From"]    = EMAIL_EXPEDITEUR
     msg["To"]      = EMAIL_DESTINATAIRE
-    texte = "Creneaux disponibles :\n\n" + liste + "\n\nReserver : " + url_rdv
     msg.attach(MIMEText(texte, "plain", "utf-8"))
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
         smtp.login(EMAIL_EXPEDITEUR, EMAIL_MOT_DE_PASSE)
         smtp.sendmail(EMAIL_EXPEDITEUR, EMAIL_DESTINATAIRE, msg.as_string())
-    print("Email envoye : " + str(len(creneaux)) + " creneau(x)")
+    print("Email envoye !")
 
 def main():
+    if MODE_TEST:
+        print("MODE TEST : envoi d'un email de verification...")
+        envoyer_email([], test=True)
+        return
+
     print("Verification de tous les creneaux disponibles...")
     data = get_availabilities()
     if data is None:
