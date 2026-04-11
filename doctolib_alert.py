@@ -16,8 +16,6 @@ EMAIL_DESTINATAIRE = os.environ.get("EMAIL_DESTINATAIRE", "")
 EMAIL_EXPEDITEUR   = os.environ.get("EMAIL_EXPEDITEUR", "")
 EMAIL_MOT_DE_PASSE = os.environ.get("EMAIL_MOT_DE_PASSE", "")
 
-HEURE_MIN = 17
-
 def get_availabilities():
     today = date.today().isoformat()
     url = (
@@ -46,28 +44,23 @@ def get_availabilities():
         print("Erreur : " + str(e))
         return None
 
-def filtrer_creneaux(data):
+def get_all_creneaux(data):
     creneaux = []
     if not data or "availabilities" not in data:
         return creneaux
     for jour in data["availabilities"]:
         for slot in jour.get("slots", []):
-            try:
-                dt = datetime.fromisoformat(slot.replace("Z", "+00:00"))
-                if dt.hour >= HEURE_MIN:
-                    creneaux.append(slot)
-            except Exception:
-                pass
+            creneaux.append(slot)
     return creneaux
 
 def envoyer_email(creneaux):
-    liste = "\n".join(["- " + c for c in creneaux[:10]])
+    liste = "\n".join(["- " + c for c in creneaux[:15]])
     url_rdv = "https://www.doctolib.fr/psychotherapeute/paris/maba-diarra"
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = "Creneau Doctolib apres 17h - Maba DIARRA"
+    msg["Subject"] = "Creneau Doctolib disponible - Maba DIARRA"
     msg["From"]    = EMAIL_EXPEDITEUR
     msg["To"]      = EMAIL_DESTINATAIRE
-    texte = "Creneaux disponibles apres 17h :\n\n" + liste + "\n\nReserver : " + url_rdv
+    texte = "Creneaux disponibles :\n\n" + liste + "\n\nReserver : " + url_rdv
     msg.attach(MIMEText(texte, "plain", "utf-8"))
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
         smtp.login(EMAIL_EXPEDITEUR, EMAIL_MOT_DE_PASSE)
@@ -75,17 +68,17 @@ def envoyer_email(creneaux):
     print("Email envoye : " + str(len(creneaux)) + " creneau(x)")
 
 def main():
-    print("Verification des creneaux apres " + str(HEURE_MIN) + "h...")
+    print("Verification de tous les creneaux disponibles...")
     data = get_availabilities()
     if data is None:
         print("Impossible de recuperer les donnees Doctolib")
         return
-    creneaux = filtrer_creneaux(data)
+    creneaux = get_all_creneaux(data)
     if creneaux:
         print(str(len(creneaux)) + " creneau(x) trouve(s) !")
         envoyer_email(creneaux)
     else:
-        print("Aucun creneau apres 17h pour le moment.")
+        print("Aucun creneau disponible pour le moment.")
 
 if __name__ == "__main__":
     main()
