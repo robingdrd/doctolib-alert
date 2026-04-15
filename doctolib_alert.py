@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-import urllib.request, urllib.error, json, smtplib, os, locale
+import urllib.request, urllib.error, json, smtplib, os
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import date, datetime
 from collections import defaultdict
+from pathlib import Path
 
 # --- Configuration ---
-MODE_TEST = True
+MODE_TEST = False
 VISIT_MOTIVE_IDS = "844309"
 AGENDA_IDS = "379404"
 PRACTICE_IDS = "356377"
@@ -15,6 +16,7 @@ URL_DOCTOLIB = "https://www.doctolib.fr/psychotherapeute/paris/maba-diarra"
 EMAIL_DESTINATAIRE = os.environ.get("EMAIL_DESTINATAIRE", "")
 EMAIL_EXPEDITEUR = os.environ.get("EMAIL_EXPEDITEUR", "")
 EMAIL_MOT_DE_PASSE = os.environ.get("EMAIL_MOT_DE_PASSE", "")
+SEEN_SLOTS_FILE = Path("seen_slots.json")
 
 JOURS_FR = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
 MOIS_FR = ["janvier", "fevrier", "mars", "avril", "mai", "juin",
@@ -29,6 +31,22 @@ def format_date_fr(dt):
 
 def format_heure(dt):
     return f"{dt.hour:02d}h{dt.minute:02d}"
+
+
+def load_seen_slots():
+    if SEEN_SLOTS_FILE.exists():
+        try:
+            return set(json.loads(SEEN_SLOTS_FILE.read_text()))
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return set()
+
+
+def save_seen_slots(slots):
+    today = date.today().isoformat()
+    # Garder uniquement les creneaux futurs (>= aujourd'hui)
+    clean = sorted(s for s in slots if s[:10] >= today)
+    SEEN_SLOTS_FILE.write_text(json.dumps(clean))
 
 
 def get_availabilities():
@@ -50,7 +68,7 @@ def get_availabilities():
         return None
 
 
-def build_html(slots_by_day):
+def build_html(slots_by_day, is_new=True):
     rows = ""
     for day_str in sorted(slots_by_day):
         dt_day = datetime.fromisoformat(day_str)
@@ -66,11 +84,12 @@ def build_html(slots_by_day):
         <tr><td><ul style="margin:4px 0 0 16px;padding:0;list-style:disc;">{heures}</ul></td></tr>"""
 
     total = sum(len(v) for v in slots_by_day.values())
+    title = "Nouveau(x) creneau(x)" if is_new else "Creneaux disponibles"
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"></head>
 <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:16px;">
-<h2 style="color:#2d3748;margin-bottom:4px;">Creneaux disponibles chez {PRATICIEN}</h2>
-<p style="color:#718096;margin-top:0;">{total} creneau(x) trouve(s)</p>
+<h2 style="color:#2d3748;margin-bottom:4px;">{title} chez {PRATICIEN}</h2>
+<p style="color:#718096;margin-top:0;">{total} nouveau(x) creneau(x)</p>
 <table style="width:100%;border-collapse:collapse;">{rows}</table>
 <br>
 <a href="{URL_DOCTOLIB}" style="display:inline-block;background:#107ACA;color:white;padding:14px 28px;
@@ -83,7 +102,7 @@ def build_html(slots_by_day):
 
 def send_email(html, total):
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"Creneaux disponibles ({total}) - {PRATICIEN}"
+    msg["Subject"] = f"Nouveau(x) creneau(x) ({total}) - {PRATICIEN}"
     msg["From"] = EMAIL_EXPEDITEUR
     msg["To"] = EMAIL_DESTINATAIRE
     msg.attach(MIMEText(html, "html", "utf-8"))
@@ -108,23 +127,46 @@ def main():
         print("Impossible de recuperer les donnees Doctolib. Nouvel essai au prochain cycle.")
         return
 
+    # Collecter tous les creneaux actuels (comme strings ISO)
+    all_current = set()
     slots_by_day = defaultdict(list)
     for day in data.get("availabilities", []):
         for s in day.get("slots", []):
+            all_current.add(s)
             try:
                 dt = datetime.fromisoformat(s)
                 slots_by_day[day["date"]].append(dt)
             except (ValueError, TypeError):
                 continue
 
-    if not slots_by_day:
+    if not all_current:
         print("Aucun creneau disponible.")
+        save_seen_slots(set())
         return
 
-    total = sum(len(v) for v in slots_by_day.values())
-    print(f"{total} creneau(x) trouve(s) !")
-    html = build_html(slots_by_day)
-    send_email(html, total)
+    # Comparer avec les creneaux deja vus
+    seen = load_seen_slots()
+    new_slots = all_current - seen
+    print(f"{len(all_current)} creneau(x) au total, {len(new_slots)} nouveau(x).")
+
+    # Sauvegarder tous les creneaux actuels comme "vus"
+    save_seen_slots(all_current)
+
+    if not new_slots:
+        print("Pas de nouveau creneau depuis la derniere verification.")
+        return
+
+    # Construire l'email uniquement avec les nouveaux creneaux
+    new_by_day = defaultdict(list)
+    for s in new_slots:
+        try:
+            dt = datetime.fromisoformat(s)
+            new_by_day[dt.strftime("%Y-%m-%d")].append(dt)
+        except (ValueError, TypeError):
+            continue
+
+    html = build_html(new_by_day, is_new=True)
+    send_email(html, len(new_slots))
 
 
 if __name__ == "__main__":

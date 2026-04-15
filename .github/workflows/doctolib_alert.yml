@@ -14,6 +14,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Restaurer le cache des creneaux vus
+        uses: actions/cache@v4
+        with:
+          path: seen_slots.json
+          key: seen-slots-${{ github.run_id }}
+          restore-keys: seen-slots-
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
