@@ -7,7 +7,7 @@ from collections import defaultdict
 from pathlib import Path
 
 # --- Configuration ---
-MODE_TEST = True
+MODE_TEST = False
 VISIT_MOTIVE_IDS = "844309"
 AGENDA_IDS = "379404"
 PRACTICE_IDS = "356377"
