@@ -16,6 +16,7 @@ URL_DOCTOLIB = "https://www.doctolib.fr/psychotherapeute/paris/maba-diarra"
 EMAIL_DESTINATAIRE = os.environ.get("EMAIL_DESTINATAIRE", "")
 EMAIL_EXPEDITEUR = os.environ.get("EMAIL_EXPEDITEUR", "")
 EMAIL_MOT_DE_PASSE = os.environ.get("EMAIL_MOT_DE_PASSE", "")
+NTFY_TOPIC = "robin-doctolib-alert"
 SEEN_SLOTS_FILE = Path("seen_slots.json")
 
 JOURS_FR = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
@@ -100,6 +101,35 @@ def build_html(slots_by_day, is_new=True):
 </body></html>"""
 
 
+def build_ntfy_text(slots_by_day):
+    lines = []
+    for day_str in sorted(slots_by_day):
+        dt_day = datetime.fromisoformat(day_str)
+        lines.append(format_date_fr(dt_day))
+        for h in sorted(slots_by_day[day_str]):
+            lines.append(f"  - {format_heure(h)}")
+    return "\n".join(lines)
+
+
+def send_ntfy(total, slots_text):
+    data = f"{total} nouveau(x) creneau(x) chez {PRATICIEN}\n\n{slots_text}"
+    req = urllib.request.Request(
+        f"https://ntfy.sh/{NTFY_TOPIC}",
+        data=data.encode("utf-8"),
+        headers={
+            "Title": f"Doctolib - {total} creneau(x) !",
+            "Priority": "urgent",
+            "Tags": "calendar",
+            "Click": URL_DOCTOLIB,
+        },
+    )
+    try:
+        urllib.request.urlopen(req, timeout=10)
+        print("Notification ntfy envoyee !")
+    except Exception as e:
+        print(f"Erreur ntfy : {e}")
+
+
 def send_email(html, total):
     msg = MIMEMultipart("alternative")
     msg["Subject"] = f"Nouveau(x) creneau(x) ({total}) - {PRATICIEN}"
@@ -114,11 +144,12 @@ def send_email(html, total):
 
 def main():
     if MODE_TEST:
-        print("[MODE TEST] Envoi d'un email de test...")
+        print("[MODE TEST] Envoi d'un email + ntfy de test...")
         fake_slots = {"2026-06-09": [datetime(2026, 6, 9, 14, 0), datetime(2026, 6, 9, 16, 30)],
                       "2026-06-10": [datetime(2026, 6, 10, 9, 0)]}
         html = build_html(fake_slots)
         send_email(html, 3)
+        send_ntfy(3, build_ntfy_text(fake_slots))
         return
 
     print(f"Verification des creneaux chez {PRATICIEN}...")
@@ -167,6 +198,7 @@ def main():
 
     html = build_html(new_by_day, is_new=True)
     send_email(html, len(new_slots))
+    send_ntfy(len(new_slots), build_ntfy_text(new_by_day))
 
 
 if __name__ == "__main__":
