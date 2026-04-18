@@ -50,8 +50,8 @@ def save_seen_slots(slots):
     SEEN_SLOTS_FILE.write_text(json.dumps(clean))
 
 
-def get_availabilities():
-    url = (f"https://www.doctolib.fr/availabilities.json?start_date={date.today().isoformat()}"
+def _fetch_page(start_date_str):
+    url = (f"https://www.doctolib.fr/availabilities.json?start_date={start_date_str}"
            f"&visit_motive_ids={VISIT_MOTIVE_IDS}&agenda_ids={AGENDA_IDS}"
            f"&practice_ids={PRACTICE_IDS}&telehealth=false")
     headers = {
@@ -61,12 +61,30 @@ def get_availabilities():
         "Referer": URL_DOCTOLIB,
         "X-Requested-With": "XMLHttpRequest",
     }
+    with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=15) as r:
+        return json.loads(r.read().decode())
+
+
+def get_availabilities():
+    # L'API retourne ~2 jours par page. On suit next_slot pour tout récupérer.
+    all_slots = []
+    start = date.today().isoformat()
+    seen_starts = set()
     try:
-        with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=15) as r:
-            return json.loads(r.read().decode())
+        while start and start not in seen_starts:
+            seen_starts.add(start)
+            data = _fetch_page(start)
+            for day in data.get("availabilities", []):
+                all_slots.extend(day.get("slots", []))
+            next_slot = data.get("next_slot")
+            if next_slot:
+                start = next_slot[:10]  # date part only
+            else:
+                break
     except Exception as e:
         print(f"Erreur : {e}")
         return None
+    return {"slots": all_slots}
 
 
 def build_html(slots_by_day, is_new=True):
@@ -161,14 +179,13 @@ def main():
     # Collecter tous les creneaux actuels (comme strings ISO)
     all_current = set()
     slots_by_day = defaultdict(list)
-    for day in data.get("availabilities", []):
-        for s in day.get("slots", []):
-            all_current.add(s)
-            try:
-                dt = datetime.fromisoformat(s)
-                slots_by_day[day["date"]].append(dt)
-            except (ValueError, TypeError):
-                continue
+    for s in data.get("slots", []):
+        all_current.add(s)
+        try:
+            dt = datetime.fromisoformat(s)
+            slots_by_day[dt.strftime("%Y-%m-%d")].append(dt)
+        except (ValueError, TypeError):
+            continue
 
     if not all_current:
         print("Aucun creneau disponible.")
