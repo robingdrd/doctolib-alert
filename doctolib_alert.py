@@ -73,7 +73,7 @@ def get_availabilities():
     all_slots = []
     seen_starts = set()
     today = date.today()
-    horizon = today + timedelta(days=120)
+    horizon = today + timedelta(days=180)
 
     start = today
     try:
