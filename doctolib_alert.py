@@ -66,21 +66,34 @@ def _fetch_page(start_date_str):
 
 
 def get_availabilities():
-    # L'API retourne ~2 jours par page. On suit next_slot pour tout récupérer.
+    # L'API retourne ~2 jours par page et next_slot s'arrête dès qu'il trouve des slots,
+    # manquant les créneaux plus lointains. On scanne donc par tranches de 14 jours
+    # sur 4 mois, et on suit next_slot uniquement quand la page est vide.
+    from datetime import timedelta
     all_slots = []
-    start = date.today().isoformat()
     seen_starts = set()
+    today = date.today()
+    horizon = today + timedelta(days=120)
+
+    start = today
     try:
-        while start and start not in seen_starts:
-            seen_starts.add(start)
-            data = _fetch_page(start)
-            for day in data.get("availabilities", []):
-                all_slots.extend(day.get("slots", []))
+        while start <= horizon:
+            start_str = start.isoformat()
+            if start_str in seen_starts:
+                start += timedelta(days=14)
+                continue
+            seen_starts.add(start_str)
+            data = _fetch_page(start_str)
+            page_slots = [s for day in data.get("availabilities", []) for s in day.get("slots", [])]
+            all_slots.extend(page_slots)
+
             next_slot = data.get("next_slot")
-            if next_slot:
-                start = next_slot[:10]  # date part only
+            if not page_slots and next_slot:
+                # Pas de slots ici, sauter directement au prochain créneau connu
+                next_date = date.fromisoformat(next_slot[:10])
+                start = next_date
             else:
-                break
+                start += timedelta(days=14)
     except Exception as e:
         print(f"Erreur : {e}")
         return None
