@@ -1,23 +1,37 @@
 #!/usr/bin/env python3
-import urllib.request, urllib.error, json, smtplib, os
+import urllib.request, urllib.error, json, smtplib, os, time
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from collections import defaultdict
 from pathlib import Path
 
 # --- Configuration ---
 MODE_TEST = False
-VISIT_MOTIVE_IDS = "844309"
-AGENDA_IDS = "379404"
-PRACTICE_IDS = "356377"
-PRATICIEN = "Maba DIARRA"
-URL_DOCTOLIB = "https://www.doctolib.fr/psychotherapeute/paris/maba-diarra"
+
+PRATICIENS = [
+    {
+        "id": "diarra",
+        "nom": "Maba DIARRA",
+        "visit_motive_ids": "844309",
+        "agenda_ids": "379404",
+        "practice_ids": "356377",
+        "url": "https://www.doctolib.fr/psychotherapeute/paris/maba-diarra",
+    },
+    {
+        "id": "lamblin",
+        "nom": "Benoit LAMBLIN",
+        "visit_motive_ids": "878285",
+        "agenda_ids": "148342",
+        "practice_ids": "57418",
+        "url": "https://www.doctolib.fr/orl-chirurgien-de-la-face-et-du-cou/paris/benoit-lamblin-paris",
+    },
+]
+
 EMAIL_DESTINATAIRE = os.environ.get("EMAIL_DESTINATAIRE", "")
 EMAIL_EXPEDITEUR = os.environ.get("EMAIL_EXPEDITEUR", "")
 EMAIL_MOT_DE_PASSE = os.environ.get("EMAIL_MOT_DE_PASSE", "")
 NTFY_TOPIC = "robin-doctolib-alert"
-SEEN_SLOTS_FILE = Path("seen_slots.json")
 
 JOURS_FR = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
 MOIS_FR = ["janvier", "fevrier", "mars", "avril", "mai", "juin",
@@ -34,45 +48,49 @@ def format_heure(dt):
     return f"{dt.hour:02d}h{dt.minute:02d}"
 
 
-def load_seen_slots():
-    if SEEN_SLOTS_FILE.exists():
+def seen_slots_file(praticien):
+    return Path(f"seen_slots_{praticien['id']}.json")
+
+
+def load_seen_slots(praticien):
+    f = seen_slots_file(praticien)
+    if f.exists():
         try:
-            return set(json.loads(SEEN_SLOTS_FILE.read_text()))
+            return set(json.loads(f.read_text()))
         except (json.JSONDecodeError, TypeError):
             pass
     return set()
 
 
-def save_seen_slots(slots):
+def save_seen_slots(praticien, slots):
     today = date.today().isoformat()
     # Garder uniquement les creneaux futurs (>= aujourd'hui)
     clean = sorted(s for s in slots if s[:10] >= today)
-    SEEN_SLOTS_FILE.write_text(json.dumps(clean))
+    seen_slots_file(praticien).write_text(json.dumps(clean))
 
 
-def _fetch_page(start_date_str):
+def _fetch_page(praticien, start_date_str):
     url = (f"https://www.doctolib.fr/availabilities.json?start_date={start_date_str}"
-           f"&visit_motive_ids={VISIT_MOTIVE_IDS}&agenda_ids={AGENDA_IDS}"
-           f"&practice_ids={PRACTICE_IDS}&telehealth=false")
+           f"&visit_motive_ids={praticien['visit_motive_ids']}&agenda_ids={praticien['agenda_ids']}"
+           f"&practice_ids={praticien['practice_ids']}&telehealth=false")
     headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
         "Accept": "application/json",
         "Accept-Language": "fr-FR,fr;q=0.9",
-        "Referer": URL_DOCTOLIB,
+        "Referer": praticien["url"],
         "X-Requested-With": "XMLHttpRequest",
     }
     with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=15) as r:
         return json.loads(r.read().decode())
 
 
-def get_availabilities():
+def get_availabilities(praticien):
     # L'API renvoie ~2 jours par page. Quand la page contient des creneaux, on avance
     # juste apres le dernier jour renvoye (pas de saut fixe, sinon on saute des semaines
     # entieres avec des creneaux). Quand la page est vide, on suit next_slot pour sauter
     # au prochain creneau connu. Quand la page est vide ET next_slot est absent, l'agenda
     # ne contient plus aucune info sur le futur : on arrete le scan (continuer jour par
     # jour jusqu'a l'horizon ne ferait que spammer l'API pour rien).
-    from datetime import timedelta
     all_slots = []
     today = date.today()
     horizon = today + timedelta(days=365)
@@ -80,7 +98,7 @@ def get_availabilities():
     start = today
     try:
         while start <= horizon:
-            data = _fetch_page(start.isoformat())
+            data = _fetch_page(praticien, start.isoformat())
             avail = data.get("availabilities", [])
             page_slots = [s for day in avail for s in day.get("slots", [])]
             all_slots.extend(page_slots)
@@ -99,7 +117,7 @@ def get_availabilities():
     return {"slots": all_slots}
 
 
-def build_html(slots_by_day, is_new=True):
+def build_html(praticien, slots_by_day, is_new=True):
     rows = ""
     for day_str in sorted(slots_by_day):
         dt_day = datetime.fromisoformat(day_str)
@@ -119,11 +137,11 @@ def build_html(slots_by_day, is_new=True):
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"></head>
 <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:16px;">
-<h2 style="color:#2d3748;margin-bottom:4px;">{title} chez {PRATICIEN}</h2>
+<h2 style="color:#2d3748;margin-bottom:4px;">{title} chez {praticien['nom']}</h2>
 <p style="color:#718096;margin-top:0;">{total} nouveau(x) creneau(x)</p>
 <table style="width:100%;border-collapse:collapse;">{rows}</table>
 <br>
-<a href="{URL_DOCTOLIB}" style="display:inline-block;background:#107ACA;color:white;padding:14px 28px;
+<a href="{praticien['url']}" style="display:inline-block;background:#107ACA;color:white;padding:14px 28px;
    text-decoration:none;border-radius:8px;font-size:17px;font-weight:bold;">
    Reserver sur Doctolib
 </a>
@@ -141,8 +159,8 @@ def build_ntfy_text(slots_by_day):
     return "\n".join(lines)
 
 
-def send_ntfy(total, slots_text):
-    data = f"{total} nouveau(x) creneau(x) chez {PRATICIEN}\n\n{slots_text}"
+def send_ntfy(praticien, total, slots_text):
+    data = f"{total} nouveau(x) creneau(x) chez {praticien['nom']}\n\n{slots_text}"
     req = urllib.request.Request(
         f"https://ntfy.sh/{NTFY_TOPIC}",
         data=data.encode("utf-8"),
@@ -150,7 +168,7 @@ def send_ntfy(total, slots_text):
             "Title": f"Doctolib - {total} creneau(x) !",
             "Priority": "urgent",
             "Tags": "calendar",
-            "Click": URL_DOCTOLIB,
+            "Click": praticien["url"],
         },
     )
     try:
@@ -160,9 +178,9 @@ def send_ntfy(total, slots_text):
         print(f"Erreur ntfy : {e}")
 
 
-def send_email(html, total):
+def send_email(praticien, html, total):
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"Nouveau(x) creneau(x) ({total}) - {PRATICIEN}"
+    msg["Subject"] = f"Nouveau(x) creneau(x) ({total}) - {praticien['nom']}"
     msg["From"] = EMAIL_EXPEDITEUR
     msg["To"] = EMAIL_DESTINATAIRE
     msg.attach(MIMEText(html, "html", "utf-8"))
@@ -172,20 +190,11 @@ def send_email(html, total):
     print("Email envoye !")
 
 
-def main():
-    if MODE_TEST:
-        print("[MODE TEST] Envoi d'un email + ntfy de test...")
-        fake_slots = {"2026-06-09": [datetime(2026, 6, 9, 14, 0), datetime(2026, 6, 9, 16, 30)],
-                      "2026-06-10": [datetime(2026, 6, 10, 9, 0)]}
-        html = build_html(fake_slots)
-        send_email(html, 3)
-        send_ntfy(3, build_ntfy_text(fake_slots))
-        return
-
-    print(f"Verification des creneaux chez {PRATICIEN}...")
-    data = get_availabilities()
+def check_praticien(praticien):
+    print(f"Verification des creneaux chez {praticien['nom']}...")
+    data = get_availabilities(praticien)
     if not data:
-        print("Impossible de recuperer les donnees Doctolib. Nouvel essai au prochain cycle.")
+        print(f"Impossible de recuperer les donnees Doctolib pour {praticien['nom']}. Nouvel essai au prochain cycle.")
         return
 
     # Collecter tous les creneaux actuels (comme strings ISO)
@@ -200,20 +209,20 @@ def main():
             continue
 
     if not all_current:
-        print("Aucun creneau disponible.")
-        save_seen_slots(set())
+        print(f"Aucun creneau disponible chez {praticien['nom']}.")
+        save_seen_slots(praticien, set())
         return
 
     # Comparer avec les creneaux deja vus
-    seen = load_seen_slots()
+    seen = load_seen_slots(praticien)
     new_slots = all_current - seen
-    print(f"{len(all_current)} creneau(x) au total, {len(new_slots)} nouveau(x).")
+    print(f"{praticien['nom']} : {len(all_current)} creneau(x) au total, {len(new_slots)} nouveau(x).")
 
     # Sauvegarder tous les creneaux actuels comme "vus"
-    save_seen_slots(all_current)
+    save_seen_slots(praticien, all_current)
 
     if not new_slots:
-        print("Pas de nouveau creneau depuis la derniere verification.")
+        print(f"Pas de nouveau creneau chez {praticien['nom']} depuis la derniere verification.")
         return
 
     # Construire l'email uniquement avec les nouveaux creneaux
@@ -225,9 +234,31 @@ def main():
         except (ValueError, TypeError):
             continue
 
-    html = build_html(new_by_day, is_new=True)
-    send_email(html, len(new_slots))
-    send_ntfy(len(new_slots), build_ntfy_text(new_by_day))
+    html = build_html(praticien, new_by_day, is_new=True)
+    send_email(praticien, html, len(new_slots))
+    send_ntfy(praticien, len(new_slots), build_ntfy_text(new_by_day))
+
+
+def main():
+    if MODE_TEST:
+        print("[MODE TEST] Envoi d'un email + ntfy de test pour chaque praticien...")
+        for i, praticien in enumerate(PRATICIENS):
+            fake_slots = {"2026-06-09": [datetime(2026, 6, 9, 14, 0), datetime(2026, 6, 9, 16, 30)],
+                          "2026-06-10": [datetime(2026, 6, 10, 9, 0)]}
+            html = build_html(praticien, fake_slots)
+            send_email(praticien, html, 3)
+            send_ntfy(praticien, 3, build_ntfy_text(fake_slots))
+            if i < len(PRATICIENS) - 1:
+                time.sleep(1)
+        return
+
+    for i, praticien in enumerate(PRATICIENS):
+        try:
+            check_praticien(praticien)
+        except Exception as e:
+            print(f"Erreur inattendue pour {praticien['nom']} : {e}")
+        if i < len(PRATICIENS) - 1:
+            time.sleep(1)
 
 
 if __name__ == "__main__":

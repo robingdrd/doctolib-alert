@@ -1,4 +1,4 @@
-name: Doctolib Alert - Maba DIARRA
+name: Doctolib Alert
 
 on:
   workflow_dispatch:
@@ -15,7 +15,7 @@ jobs:
       - name: Restaurer le cache des creneaux vus
         uses: actions/cache@v4
         with:
-          path: seen_slots.json
+          path: seen_slots_*.json
           key: seen-slots-${{ github.run_id }}
           restore-keys: seen-slots-
 
