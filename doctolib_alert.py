@@ -7,7 +7,7 @@ from collections import defaultdict
 from pathlib import Path
 
 # --- Configuration ---
-MODE_TEST = True
+MODE_TEST = False
 
 PRATICIENS = [
     {
