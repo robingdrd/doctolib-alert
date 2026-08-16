@@ -66,34 +66,33 @@ def _fetch_page(start_date_str):
 
 
 def get_availabilities():
-    # L'API retourne ~2 jours par page et next_slot s'arrête dès qu'il trouve des slots,
-    # manquant les créneaux plus lointains. On scanne donc par tranches de 14 jours
-    # sur 4 mois, et on suit next_slot uniquement quand la page est vide.
+    # L'API renvoie ~2 jours par page. Quand la page contient des creneaux, on avance
+    # juste apres le dernier jour renvoye (pas de saut fixe, sinon on saute des semaines
+    # entieres avec des creneaux). Quand la page est vide, on suit next_slot pour sauter
+    # au prochain creneau connu. Quand la page est vide ET next_slot est absent, l'agenda
+    # ne contient plus aucune info sur le futur : on arrete le scan (continuer jour par
+    # jour jusqu'a l'horizon ne ferait que spammer l'API pour rien).
     from datetime import timedelta
     all_slots = []
-    seen_starts = set()
     today = date.today()
-    horizon = today + timedelta(days=180)
+    horizon = today + timedelta(days=365)
 
     start = today
     try:
         while start <= horizon:
-            start_str = start.isoformat()
-            if start_str in seen_starts:
-                start += timedelta(days=14)
-                continue
-            seen_starts.add(start_str)
-            data = _fetch_page(start_str)
-            page_slots = [s for day in data.get("availabilities", []) for s in day.get("slots", [])]
+            data = _fetch_page(start.isoformat())
+            avail = data.get("availabilities", [])
+            page_slots = [s for day in avail for s in day.get("slots", [])]
             all_slots.extend(page_slots)
 
             next_slot = data.get("next_slot")
-            if not page_slots and next_slot:
-                # Pas de slots ici, sauter directement au prochain créneau connu
-                next_date = date.fromisoformat(next_slot[:10])
-                start = next_date
+            if page_slots:
+                last_day = date.fromisoformat(avail[-1]["date"])
+                start = last_day + timedelta(days=1)
+            elif next_slot:
+                start = date.fromisoformat(next_slot[:10])
             else:
-                start += timedelta(days=14)
+                break
     except Exception as e:
         print(f"Erreur : {e}")
         return None
