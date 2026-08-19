@@ -159,7 +159,12 @@ def get_availabilities(praticien):
 
     start = today
     try:
-        _warmup(praticien)
+        try:
+            _warmup(praticien)
+        except urllib.error.HTTPError as e:
+            print(f"  [warmup page HTML] echec HTTP {e.code} {e.reason}")
+            raise
+        print("  [warmup page HTML] ok, session etablie")
         first = True
         while start <= horizon:
             if not first:
@@ -180,8 +185,9 @@ def get_availabilities(praticien):
             else:
                 break
     except urllib.error.HTTPError as e:
-        server = e.headers.get("Server", "?")
-        print(f"Erreur HTTP {e.code}: {e.reason} (Server: {server})")
+        retry_after = e.headers.get("Retry-After", "-")
+        print(f"Erreur HTTP {e.code}: {e.reason} "
+              f"(Server: {e.headers.get('Server', '?')}, Retry-After: {retry_after})")
         return None
     except Exception as e:
         print(f"Erreur : {e}")
