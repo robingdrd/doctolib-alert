@@ -24,16 +24,6 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Debug test discriminant
-        run: |
-          UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"
-          curl -s -o /dev/null -w "PAGE_HTML:%{http_code}\n" -A "$UA" \
-            "https://www.doctolib.fr/psychotherapeute/paris/maba-diarra"
-          curl -s -o /dev/null -w "API_JSON:%{http_code}\n" -A "$UA" \
-            -H "Accept: application/json" -H "X-Requested-With: XMLHttpRequest" \
-            -H "Referer: https://www.doctolib.fr/psychotherapeute/paris/maba-diarra" \
-            "https://www.doctolib.fr/availabilities.json?start_date=2026-08-20&visit_motive_ids=844309&agenda_ids=379404&practice_ids=356377&telehealth=false"
-
       - name: Verifier les creneaux Doctolib
         env:
           EMAIL_DESTINATAIRE: ${{ secrets.EMAIL_DESTINATAIRE }}

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import urllib.request, urllib.error, json, smtplib, os, time
+import urllib.request, urllib.error, http.cookiejar, gzip, zlib, json, smtplib, os, time
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from datetime import date, datetime, timedelta
@@ -69,19 +69,81 @@ def save_seen_slots(praticien, slots):
     seen_slots_file(praticien).write_text(json.dumps(clean))
 
 
+USER_AGENT = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+              "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+
+# Headers communs qu'un vrai Chrome envoie systematiquement. Les omettre est un
+# signal "client automatise" pour les WAF (Cloudflare notamment).
+BASE_HEADERS = {
+    "User-Agent": USER_AGENT,
+    "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept-Encoding": "gzip, deflate",
+    "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"macOS"',
+    "Connection": "keep-alive",
+}
+
+# Session partagee : conserve les cookies (dont __cf_bm de Cloudflare) entre les
+# requetes, comme le ferait un navigateur.
+_cookie_jar = http.cookiejar.CookieJar()
+_opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(_cookie_jar))
+_warmed_up = set()
+
+
+def _read_body(response):
+    """Lit le corps d'une reponse en gerant gzip/deflate (urllib ne le fait pas)."""
+    data = response.read()
+    encoding = response.headers.get("Content-Encoding", "")
+    if encoding == "gzip":
+        return gzip.decompress(data)
+    if encoding == "deflate":
+        return zlib.decompress(data)
+    return data
+
+
+def _warmup(praticien):
+    """Charge la page publique du praticien pour etablir une session.
+
+    Appeler availabilities.json "a froid" (sans cookie, sans avoir jamais visite
+    le site) est traite comme du scraping par Cloudflare et renvoie 403/429 depuis
+    les IPs datacenter. Un vrai navigateur charge d'abord la page, ce qui pose les
+    cookies de session + __cf_bm, puis appelle l'API avec ces cookies.
+    """
+    if praticien["id"] in _warmed_up:
+        return
+    headers = {
+        **BASE_HEADERS,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1",
+    }
+    req = urllib.request.Request(praticien["url"], headers=headers)
+    with _opener.open(req, timeout=20) as r:
+        _read_body(r)
+    _warmed_up.add(praticien["id"])
+    # Laisser un court delai avant l'appel API, comme un vrai chargement de page.
+    time.sleep(1.5)
+
+
 def _fetch_page(praticien, start_date_str):
     url = (f"https://www.doctolib.fr/availabilities.json?start_date={start_date_str}"
            f"&visit_motive_ids={praticien['visit_motive_ids']}&agenda_ids={praticien['agenda_ids']}"
            f"&practice_ids={praticien['practice_ids']}&telehealth=false")
     headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+        **BASE_HEADERS,
         "Accept": "application/json",
-        "Accept-Language": "fr-FR,fr;q=0.9",
         "Referer": praticien["url"],
         "X-Requested-With": "XMLHttpRequest",
+        "Sec-Fetch-Dest": "empty",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Site": "same-origin",
     }
-    with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=15) as r:
-        return json.loads(r.read().decode())
+    with _opener.open(urllib.request.Request(url, headers=headers), timeout=15) as r:
+        return json.loads(_read_body(r).decode())
 
 
 def get_availabilities(praticien):
@@ -97,7 +159,13 @@ def get_availabilities(praticien):
 
     start = today
     try:
+        _warmup(praticien)
+        first = True
         while start <= horizon:
+            if not first:
+                # Espacer les appels : une rafale sans pause est un signal de scraping.
+                time.sleep(0.8)
+            first = False
             data = _fetch_page(praticien, start.isoformat())
             avail = data.get("availabilities", [])
             page_slots = [s for day in avail for s in day.get("slots", [])]
