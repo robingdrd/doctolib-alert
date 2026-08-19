@@ -113,7 +113,11 @@ def get_availabilities(praticien):
                 break
     except urllib.error.HTTPError as e:
         server = e.headers.get("Server", "?")
-        print(f"Erreur HTTP {e.code}: {e.reason} (Server: {server})")
+        cf_ray = e.headers.get("CF-RAY", "?")
+        mitigated = e.headers.get("cf-mitigated", "?")
+        title_snippet = e.read().decode(errors="replace")
+        title_snippet = title_snippet.split("<title>")[-1].split("</title>")[0][:200] if "<title>" in title_snippet else title_snippet[:200]
+        print(f"Erreur HTTP {e.code}: {e.reason} (Server: {server}, CF-RAY: {cf_ray}, cf-mitigated: {mitigated}, title: {title_snippet})")
         return None
     except Exception as e:
         print(f"Erreur : {e}")
