@@ -111,6 +111,10 @@ def get_availabilities(praticien):
                 start = date.fromisoformat(next_slot[:10])
             else:
                 break
+    except urllib.error.HTTPError as e:
+        body = e.read().decode(errors="replace")[:800]
+        print(f"Erreur HTTP {e.code}: {e.reason} | headers: {dict(e.headers)} | body: {body}")
+        return None
     except Exception as e:
         print(f"Erreur : {e}")
         return None
