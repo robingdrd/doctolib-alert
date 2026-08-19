@@ -33,6 +33,11 @@ EMAIL_EXPEDITEUR = os.environ.get("EMAIL_EXPEDITEUR", "")
 EMAIL_MOT_DE_PASSE = os.environ.get("EMAIL_MOT_DE_PASSE", "")
 NTFY_TOPIC = "robin-doctolib-alert"
 
+# Rythme des appels a l'API Doctolib. Le script tourne toutes les 5 min : un run
+# de 60-90s est sans probleme, alors qu'une rafale rapide declenche un 429.
+DELAI_ENTRE_APPELS = 1.5      # entre deux pages de pagination
+DELAI_ENTRE_PRATICIENS = 15   # avant d'enchainer sur le praticien suivant
+
 JOURS_FR = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
 MOIS_FR = ["janvier", "fevrier", "mars", "avril", "mai", "juin",
            "juillet", "aout", "septembre", "octobre", "novembre", "decembre"]
@@ -122,8 +127,19 @@ def _warmup(praticien):
         "Upgrade-Insecure-Requests": "1",
     }
     req = urllib.request.Request(praticien["url"], headers=headers)
-    with _opener.open(req, timeout=20) as r:
-        _read_body(r)
+    # Un 429 ici vient en general de notre propre volume (scan du praticien
+    # precedent). Une pause suffit, inutile de perdre le cycle.
+    for tentative in range(2):
+        try:
+            with _opener.open(req, timeout=20) as r:
+                _read_body(r)
+            break
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and tentative == 0:
+                print("  [warmup page HTML] 429, pause de 30s puis nouvel essai")
+                time.sleep(30)
+                continue
+            raise
     _warmed_up.add(praticien["id"])
     # Laisser un court delai avant l'appel API, comme un vrai chargement de page.
     time.sleep(1.5)
@@ -168,8 +184,9 @@ def get_availabilities(praticien):
         first = True
         while start <= horizon:
             if not first:
-                # Espacer les appels : une rafale sans pause est un signal de scraping.
-                time.sleep(0.8)
+                # Espacer les appels : une rafale sans pause est un signal de scraping
+                # et finit par declencher un 429.
+                time.sleep(DELAI_ENTRE_APPELS)
             first = False
             data = _fetch_page(praticien, start.isoformat())
             avail = data.get("availabilities", [])
@@ -336,7 +353,7 @@ def main():
         except Exception as e:
             print(f"Erreur inattendue pour {praticien['nom']} : {e}")
         if i < len(PRATICIENS) - 1:
-            time.sleep(1)
+            time.sleep(DELAI_ENTRE_PRATICIENS)
 
 
 if __name__ == "__main__":
