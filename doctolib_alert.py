@@ -112,8 +112,8 @@ def get_availabilities(praticien):
             else:
                 break
     except urllib.error.HTTPError as e:
-        body = e.read().decode(errors="replace")[:800]
-        print(f"Erreur HTTP {e.code}: {e.reason} | headers: {dict(e.headers)} | body: {body}")
+        server = e.headers.get("Server", "?")
+        print(f"Erreur HTTP {e.code}: {e.reason} (Server: {server})")
         return None
     except Exception as e:
         print(f"Erreur : {e}")
