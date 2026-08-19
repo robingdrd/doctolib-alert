@@ -24,6 +24,9 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Debug IP sortante
+        run: curl -s https://api.ipify.org
+
       - name: Verifier les creneaux Doctolib
         env:
           EMAIL_DESTINATAIRE: ${{ secrets.EMAIL_DESTINATAIRE }}
