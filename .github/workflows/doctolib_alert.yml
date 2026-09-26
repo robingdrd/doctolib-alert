@@ -27,6 +27,7 @@ jobs:
       - name: Verifier les creneaux Doctolib
         env:
           EMAIL_DESTINATAIRE: ${{ secrets.EMAIL_DESTINATAIRE }}
+          EMAIL_DESTINATAIRE_2: ${{ secrets.EMAIL_DESTINATAIRE_2 }}
           EMAIL_EXPEDITEUR:   ${{ secrets.EMAIL_EXPEDITEUR }}
           EMAIL_MOT_DE_PASSE: ${{ secrets.EMAIL_MOT_DE_PASSE }}
         run: python doctolib_alert.py

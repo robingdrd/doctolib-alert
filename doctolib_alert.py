@@ -26,9 +26,19 @@ PRATICIENS = [
         "practice_ids": "57418",
         "url": "https://www.doctolib.fr/orl-chirurgien-de-la-face-et-du-cou/paris/benoit-lamblin-paris",
     },
+    {
+        "id": "mouton",
+        "nom": "Antoine MOUTON",
+        "visit_motive_ids": "9237863",   # Prothese de genou - premiere consultation
+        "agenda_ids": "1460352",
+        "practice_ids": "375164",
+        "url": "https://www.doctolib.fr/chirurgien-orthopediste/paris/antoine-mouton",
+    },
 ]
 
 EMAIL_DESTINATAIRE = os.environ.get("EMAIL_DESTINATAIRE", "")
+EMAIL_DESTINATAIRE_2 = os.environ.get("EMAIL_DESTINATAIRE_2", "")   # optionnel, 2e destinataire
+DESTINATAIRES = [a for a in (EMAIL_DESTINATAIRE, EMAIL_DESTINATAIRE_2) if a]
 EMAIL_EXPEDITEUR = os.environ.get("EMAIL_EXPEDITEUR", "")
 EMAIL_MOT_DE_PASSE = os.environ.get("EMAIL_MOT_DE_PASSE", "")
 NTFY_TOPIC = "robin-doctolib-alert"
@@ -285,11 +295,11 @@ def send_email(praticien, html, total):
     msg = MIMEMultipart("alternative")
     msg["Subject"] = f"Nouveau(x) creneau(x) ({total}) - {praticien['nom']}"
     msg["From"] = EMAIL_EXPEDITEUR
-    msg["To"] = EMAIL_DESTINATAIRE
+    msg["To"] = ", ".join(DESTINATAIRES)
     msg.attach(MIMEText(html, "html", "utf-8"))
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
         smtp.login(EMAIL_EXPEDITEUR, EMAIL_MOT_DE_PASSE)
-        smtp.sendmail(EMAIL_EXPEDITEUR, EMAIL_DESTINATAIRE, msg.as_string())
+        smtp.sendmail(EMAIL_EXPEDITEUR, DESTINATAIRES, msg.as_string())
     print("Email envoye !")
 
 
