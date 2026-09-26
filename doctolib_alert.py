@@ -32,6 +32,7 @@ PRATICIENS = [
         "visit_motive_ids": "9237863",   # Prothese de genou - premiere consultation
         "agenda_ids": "1460352",
         "practice_ids": "375164",
+        "filtre_horaire": False,   # alerte sur tous les creneaux, sans restriction d'horaire
         "url": "https://www.doctolib.fr/chirurgien-orthopediste/paris/antoine-mouton",
     },
 ]
@@ -331,7 +332,7 @@ def check_praticien(praticien):
     new_slots = set()
     for s in all_current - seen:
         try:
-            if creneau_souhaite(datetime.fromisoformat(s)):
+            if not praticien.get("filtre_horaire", True) or creneau_souhaite(datetime.fromisoformat(s)):
                 new_slots.add(s)
         except (ValueError, TypeError):
             continue
