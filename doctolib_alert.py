@@ -38,11 +38,11 @@ NTFY_TOPIC = "robin-doctolib-alert"
 DELAI_ENTRE_APPELS = 1.5      # entre deux pages de pagination
 DELAI_ENTRE_PRATICIENS = 15   # avant d'enchainer sur le praticien suivant
 
-# Filtre d'alerte : uniquement en semaine, entre 12h et 14h (14h00 incluse) ou a partir de 17h.
+# Filtre d'alerte : week-end a toute heure ; en semaine, entre 12h et 14h (14h00 incluse) ou a partir de 17h.
 # Les autres creneaux restent marques "vus" pour ne pas spammer si le filtre change un jour.
 def creneau_souhaite(dt):
     if dt.weekday() >= 5:
-        return False
+        return True
     return (12 <= dt.hour < 14) or (dt.hour == 14 and dt.minute == 0) or dt.hour >= 17
 
 
