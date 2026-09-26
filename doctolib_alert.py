@@ -38,6 +38,14 @@ NTFY_TOPIC = "robin-doctolib-alert"
 DELAI_ENTRE_APPELS = 1.5      # entre deux pages de pagination
 DELAI_ENTRE_PRATICIENS = 15   # avant d'enchainer sur le praticien suivant
 
+# Filtre d'alerte : uniquement en semaine, entre 12h et 14h (14h00 incluse) ou a partir de 17h.
+# Les autres creneaux restent marques "vus" pour ne pas spammer si le filtre change un jour.
+def creneau_souhaite(dt):
+    if dt.weekday() >= 5:
+        return False
+    return (12 <= dt.hour < 14) or (dt.hour == 14 and dt.minute == 0) or dt.hour >= 17
+
+
 JOURS_FR = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
 MOIS_FR = ["janvier", "fevrier", "mars", "avril", "mai", "juin",
            "juillet", "aout", "septembre", "octobre", "novembre", "decembre"]
@@ -310,8 +318,14 @@ def check_praticien(praticien):
 
     # Comparer avec les creneaux deja vus
     seen = load_seen_slots(praticien)
-    new_slots = all_current - seen
-    print(f"{praticien['nom']} : {len(all_current)} creneau(x) au total, {len(new_slots)} nouveau(x).")
+    new_slots = set()
+    for s in all_current - seen:
+        try:
+            if creneau_souhaite(datetime.fromisoformat(s)):
+                new_slots.add(s)
+        except (ValueError, TypeError):
+            continue
+    print(f"{praticien['nom']} : {len(all_current)} creneau(x) au total, {len(new_slots)} nouveau(x) dans la plage souhaitee.")
 
     # Sauvegarder tous les creneaux actuels comme "vus"
     save_seen_slots(praticien, all_current)
