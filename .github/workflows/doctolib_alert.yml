@@ -2,6 +2,11 @@ name: Doctolib Alert
 
 on:
   workflow_dispatch:
+    inputs:
+      test_praticien:
+        description: "Id du praticien pour simuler une alerte TEST (ex: mouton). Vide = run normal."
+        required: false
+        default: ""
 
 jobs:
   check-availability:
@@ -30,4 +35,5 @@ jobs:
           EMAIL_DESTINATAIRE_2: ${{ secrets.EMAIL_DESTINATAIRE_2 }}
           EMAIL_EXPEDITEUR:   ${{ secrets.EMAIL_EXPEDITEUR }}
           EMAIL_MOT_DE_PASSE: ${{ secrets.EMAIL_MOT_DE_PASSE }}
+          TEST_PRATICIEN: ${{ inputs.test_praticien }}
         run: python doctolib_alert.py

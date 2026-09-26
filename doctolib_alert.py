@@ -231,7 +231,7 @@ def get_availabilities(praticien):
     return {"slots": all_slots}
 
 
-def build_html(praticien, slots_by_day, is_new=True):
+def build_html(praticien, slots_by_day, is_new=True, test=False):
     rows = ""
     for day_str in sorted(slots_by_day):
         dt_day = datetime.fromisoformat(day_str)
@@ -248,10 +248,15 @@ def build_html(praticien, slots_by_day, is_new=True):
 
     total = sum(len(v) for v in slots_by_day.values())
     title = "Nouveau(x) creneau(x)" if is_new else "Creneaux disponibles"
+    bandeau = ""
+    if test:
+        bandeau = ('<div style="background:#fefcbf;border:2px solid #d69e2e;color:#744210;padding:10px 14px;'
+                   'border-radius:8px;font-weight:bold;margin-bottom:16px;">'
+                   "TEST : ceci est une simulation, aucun vrai creneau n'a ete libere.</div>")
     return f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"></head>
 <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;max-width:480px;margin:0 auto;padding:16px;">
-<h2 style="color:#2d3748;margin-bottom:4px;">{title} chez {praticien['nom']}</h2>
+{bandeau}<h2 style="color:#2d3748;margin-bottom:4px;">{title} chez {praticien['nom']}</h2>
 <p style="color:#718096;margin-top:0;">{total} nouveau(x) creneau(x)</p>
 <table style="width:100%;border-collapse:collapse;">{rows}</table>
 <br>
@@ -273,13 +278,14 @@ def build_ntfy_text(slots_by_day):
     return "\n".join(lines)
 
 
-def send_ntfy(praticien, total, slots_text):
-    data = f"{total} nouveau(x) creneau(x) chez {praticien['nom']}\n\n{slots_text}"
+def send_ntfy(praticien, total, slots_text, test=False):
+    prefixe = "[TEST] " if test else ""
+    data = f"{prefixe}{total} nouveau(x) creneau(x) chez {praticien['nom']}\n\n{slots_text}"
     req = urllib.request.Request(
         f"https://ntfy.sh/{NTFY_TOPIC}",
         data=data.encode("utf-8"),
         headers={
-            "Title": f"Doctolib - {total} creneau(x) !",
+            "Title": f"{prefixe}Doctolib - {total} creneau(x) !",
             "Priority": "urgent",
             "Tags": "calendar",
             "Click": praticien["url"],
@@ -292,9 +298,9 @@ def send_ntfy(praticien, total, slots_text):
         print(f"Erreur ntfy : {e}")
 
 
-def send_email(praticien, html, total):
+def send_email(praticien, html, total, test=False):
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = f"Nouveau(x) creneau(x) ({total}) - {praticien['nom']}"
+    msg["Subject"] = f"{'[TEST] ' if test else ''}Nouveau(x) creneau(x) ({total}) - {praticien['nom']}"
     msg["From"] = EMAIL_EXPEDITEUR
     msg["To"] = ", ".join(DESTINATAIRES)
     msg.attach(MIMEText(html, "html", "utf-8"))
@@ -359,7 +365,25 @@ def check_praticien(praticien):
     send_ntfy(praticien, len(new_slots), build_ntfy_text(new_by_day))
 
 
+def send_test(praticien):
+    """Simule une alerte (email + ntfy, marquees TEST) pour un praticien, avec de faux creneaux."""
+    jour = date.today() + timedelta(days=(5 - date.today().weekday()) % 7 + 7)   # un samedi dans 1 a 2 semaines
+    fake = {jour.isoformat(): [datetime(jour.year, jour.month, jour.day, 10, 30),
+                               datetime(jour.year, jour.month, jour.day, 11, 15)]}
+    send_email(praticien, build_html(praticien, fake, test=True), 2, test=True)
+    send_ntfy(praticien, 2, build_ntfy_text(fake), test=True)
+
+
 def main():
+    test_id = os.environ.get("TEST_PRATICIEN", "").strip()
+    if test_id:
+        cible = [p for p in PRATICIENS if p["id"] == test_id]
+        if not cible:
+            raise SystemExit(f"Praticien inconnu : {test_id} (choix : {', '.join(p['id'] for p in PRATICIENS)})")
+        print(f"[TEST] Simulation d'alerte pour {cible[0]['nom']}...")
+        send_test(cible[0])
+        return
+
     if MODE_TEST:
         print("[MODE TEST] Envoi d'un email + ntfy de test pour chaque praticien...")
         for i, praticien in enumerate(PRATICIENS):
