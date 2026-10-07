@@ -26,6 +26,7 @@ PRATICIENS = [
         "agenda_ids": "148342",
         "practice_ids": "57418",
         "url": "https://www.doctolib.fr/orl-chirurgien-de-la-face-et-du-cou/paris/benoit-lamblin-paris",
+        "inclure_14h00": False,   # 12h00-13h59 seulement, pas le creneau de 14h pile
     },
     {
         "id": "mouton",
