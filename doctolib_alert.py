@@ -17,6 +17,7 @@ PRATICIENS = [
         "agenda_ids": "379404",
         "practice_ids": "356377",
         "url": "https://www.doctolib.fr/psychotherapeute/paris/maba-diarra",
+        "inclure_14h00": False,   # 12h00-13h59 seulement, pas le creneau de 14h pile
     },
     {
         "id": "lamblin",
@@ -32,7 +33,8 @@ PRATICIENS = [
         "visit_motive_ids": "9237863",   # Prothese de genou - premiere consultation
         "agenda_ids": "1460352",
         "practice_ids": "375164",
-        "filtre_horaire": False,   # alerte sur tous les creneaux, sans restriction d'horaire
+        "filtre_horaire": False,   # pas de regle d'horaires, mais :
+        "avant_date": "2026-12-15",   # uniquement les creneaux strictement avant cette date
         "url": "https://www.doctolib.fr/chirurgien-orthopediste/paris/antoine-mouton",
     },
 ]
@@ -49,12 +51,21 @@ NTFY_TOPIC = "robin-doctolib-alert"
 DELAI_ENTRE_APPELS = 1.5      # entre deux pages de pagination
 DELAI_ENTRE_PRATICIENS = 15   # avant d'enchainer sur le praticien suivant
 
-# Filtre d'alerte : week-end a toute heure ; en semaine, entre 12h et 14h (14h00 incluse) ou a partir de 17h.
-# Les autres creneaux restent marques "vus" pour ne pas spammer si le filtre change un jour.
-def creneau_souhaite(dt):
+# Filtre d'alerte : week-end a toute heure ; en semaine, entre 12h et 14h ou a partir de 17h.
+# Options par praticien : "filtre_horaire": False (plus de regle d'horaires), "inclure_14h00": False
+# (exclut 14h00 pile), "avant_date": "AAAA-MM-JJ" (creneaux strictement avant cette date).
+# Les creneaux ecartes restent marques "vus" pour ne pas spammer si le filtre change un jour.
+def creneau_souhaite(dt, praticien):
+    avant = praticien.get("avant_date")
+    if avant and dt.date() >= date.fromisoformat(avant):
+        return False
+    if not praticien.get("filtre_horaire", True):
+        return True
     if dt.weekday() >= 5:
         return True
-    return (12 <= dt.hour < 14) or (dt.hour == 14 and dt.minute == 0) or dt.hour >= 17
+    if dt.hour == 14 and dt.minute == 0:
+        return praticien.get("inclure_14h00", True)
+    return (12 <= dt.hour < 14) or dt.hour >= 17
 
 
 JOURS_FR = ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"]
@@ -338,7 +349,7 @@ def check_praticien(praticien):
     new_slots = set()
     for s in all_current - seen:
         try:
-            if not praticien.get("filtre_horaire", True) or creneau_souhaite(datetime.fromisoformat(s)):
+            if creneau_souhaite(datetime.fromisoformat(s), praticien):
                 new_slots.add(s)
         except (ValueError, TypeError):
             continue
