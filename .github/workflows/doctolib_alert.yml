@@ -7,6 +7,19 @@ on:
         description: "Id du praticien pour simuler une alerte TEST (ex: mouton). Vide = run normal."
         required: false
         default: ""
+  # Filet de securite si cron-job.org tombe (token expire, job desactive...).
+  # Les runs planifies GitHub sont souvent en retard : cron-job.org reste le declencheur principal.
+  schedule:
+    - cron: "*/15 * * * *"
+
+permissions:
+  contents: read
+  actions: read
+
+# Jamais deux scans Doctolib en parallele (Cloudflare tolere mal les rafales)
+concurrency:
+  group: doctolib-alert
+  cancel-in-progress: false
 
 jobs:
   check-availability:
@@ -14,10 +27,26 @@ jobs:
     continue-on-error: true
 
     steps:
+      - name: Secours - ne rien faire si cron-job.org tourne
+        id: guard
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          recent=$(gh run list -R "$GITHUB_REPOSITORY" -w doctolib_alert.yml -e workflow_dispatch -L 1 --json createdAt -q '.[0].createdAt // ""')
+          if [ -n "$recent" ] && [ $(( $(date +%s) - $(date -d "$recent" +%s) )) -lt 900 ]; then
+            echo "cron-job.org actif (dernier run $recent) : rien a faire"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Aucun run cron-job.org depuis 15 min (dernier : ${recent:-aucun}) : le secours prend le relais"
+          fi
+
       - name: Checkout
+        if: steps.guard.outputs.skip != 'true'
         uses: actions/checkout@v4
 
       - name: Restaurer le cache des creneaux vus
+        if: steps.guard.outputs.skip != 'true'
         uses: actions/cache@v4
         with:
           path: seen_slots_*.json
@@ -25,11 +54,13 @@ jobs:
           restore-keys: seen-slots-
 
       - name: Setup Python
+        if: steps.guard.outputs.skip != 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
       - name: Verifier les creneaux Doctolib
+        if: steps.guard.outputs.skip != 'true'
         env:
           EMAIL_DESTINATAIRE: ${{ secrets.EMAIL_DESTINATAIRE }}
           EMAIL_DESTINATAIRE_2: ${{ secrets.EMAIL_DESTINATAIRE_2 }}
